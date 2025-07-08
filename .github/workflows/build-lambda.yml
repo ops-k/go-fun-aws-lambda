@@ -1,0 +1,60 @@
+name: Build Go Lambda Functions
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: build-${{ matrix.function }}-${{ matrix.architecture }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        architecture: [amd64, arm64]
+        function: [sns-publish]
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+
+      - name: setup-go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.24
+
+      - name: build-lambda
+        run: |
+          mkdir -p build
+
+          cd ${{ matrix.function }}
+
+          go mod tidy
+
+          GOOS=linux GOARCH=${{ matrix.architecture }} CGO_ENABLED=0 go build -ldflags="-s -w" -o bootstrap -tags lambda.norpc *.go
+
+          zip -r ../build/${{ matrix.function }}-${{ matrix.architecture }}.zip bootstrap
+
+      - name: upload-artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.function }}-${{ matrix.architecture }}
+          path: build/${{ matrix.function }}-${{ matrix.architecture }}.zip
+
+  
+  s3-upload:
+    name: s3-upload
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: download-build-artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: build/
+
+      - name: list-build-artifacts
+        run: ls -lR build
